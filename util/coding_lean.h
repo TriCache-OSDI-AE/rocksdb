@@ -18,6 +18,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+#pragma clang optimize off
+
 // Lower-level versions of Put... that write directly into a character buffer
 // REQUIRES: dst has enough space for the value being written
 // -- Implementation of the functions declared above
@@ -97,6 +99,8 @@ inline uint64_t DecodeFixed64(const char* ptr) {
     return (hi << 32) | lo;
   }
 }
+
+#pragma clang optimize on
 
 // Swaps between big and little endian. Can be used to in combination
 // with the little-endian encoding/decoding functions to encode/decode

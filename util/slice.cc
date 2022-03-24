@@ -326,7 +326,10 @@ std::string Slice::ToString(bool hex) const {
     }
     return result;
   } else {
-    result.assign(data_, size_);
+    // result.assign(data_, size_);
+    result.resize(size_);
+    for (size_t i = 0; i < size_; ++i)
+      result[i] = data_[i];
     return result;
   }
 }

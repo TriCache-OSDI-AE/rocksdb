@@ -73,6 +73,17 @@ if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
 endif()
 
+option(WITH_TRICACHE "build with TriCache" OFF)
+set(TRICACHE_DIR $ENV{TRICACHE_ROOT}/build CACHE STRING "build directory of TriCache")
+option(WITH_CACHE_STDCXX "build with TriCache libc++" OFF)
+set(TRICACHE_STDCXX_DIR "$ENV{HOME}/libcxx-install" CACHE STRING "build directory of TriCache libc++")
+
+if(WITH_TRICACHE AND WITH_CACHE_STDCXX)
+  add_compile_options(-nostdinc++ -nostdlib++ -isystem ${TRICACHE_STDCXX_DIR}/include/c++/v1)
+  set(gflags_DIR "$ENV{HOME}/gflags-install/lib/cmake/gflags" CACHE STRING "build directory of gflags")
+endif()
+
+
 if ($ENV{CIRCLECI})
   message(STATUS "Build for CircieCI env, a few tests may be disabled")
   add_definitions(-DCIRCLECI)
@@ -980,6 +991,9 @@ set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
 
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
+if(WITH_TRICACHE)
+    set(ROCKSDB_BUILD_SHARED OFF)
+endif()
 
 option(WITH_LIBRADOS "Build with librados" OFF)
 if(WITH_LIBRADOS)
@@ -997,6 +1011,35 @@ endif()
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
 target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+
+if(WITH_TRICACHE)
+  if(NOT ${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
+    message(FATAL_ERROR "TriCache requires Clang 13.0.1.")
+  endif()
+  message(STATUS "Enabling TriCache.")
+  set(CMAKE_AR llvm-ar-13)
+  set(CMAKE_RANLIB llvm-ranlib-13)
+
+  if(WITH_CACHE_STDCXX)
+    link_directories(${TRICACHE_STDCXX_DIR}/lib)
+    target_link_libraries(${ROCKSDB_STATIC_LIB} PUBLIC c++ c++abi)
+  endif()
+
+  target_compile_options(${ROCKSDB_STATIC_LIB} PUBLIC -flto=thin -fpass-plugin=${TRICACHE_DIR}/llvm-plugin/TriCacheInstrument/TriCacheInstrument.so -fpass-plugin=${TRICACHE_DIR}/llvm-plugin/TriCacheAlloc/TriCacheAlloc.so)
+
+  find_package(PkgConfig)
+  pkg_check_modules(SPDK REQUIRED spdk_nvme spdk_env_dpdk spdk_syslibs)
+  link_directories(${SPDK_LIBRARY_DIRS})
+  message("(${SPDK_INCLUDE_DIRS})")
+  message("(${SPDK_LIBRARIES_DIRS})")
+  message("(${SPDK_LIBRARIES})")
+  target_link_directories(${ROCKSDB_STATIC_LIB} PUBLIC ${TRICACHE_DIR})
+  target_link_libraries(${ROCKSDB_STATIC_LIB} PUBLIC -fopenmp -flto=thin cache)
+  target_link_directories(${ROCKSDB_STATIC_LIB} PUBLIC ${SPDK_LIBRARY_DIRS})
+  target_link_libraries(${ROCKSDB_STATIC_LIB} PUBLIC -Wl,--whole-archive ${SPDK_LIBRARIES} -Wl,--no-whole-archive)
+  target_link_libraries(${ROCKSDB_STATIC_LIB} PUBLIC boost_fiber boost_context boost_thread boost_filesystem boost_atomic numa dl)
+
+endif()
 
 if(ROCKSDB_BUILD_SHARED)
   add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES} ${BUILD_VERSION_CC})
